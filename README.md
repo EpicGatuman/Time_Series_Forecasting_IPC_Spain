@@ -4,6 +4,8 @@ This repository contains a time series forecasting project focused on modeling t
 
 The project was developed by Matías Mora and Marc Cascant as part of an academic course on time series analysis.
 
+The core of the project is the .pdf analysis delivered, the .rmd file is not really important.
+
 ## Objective
 
 The goal is to understand and model the evolution of the IPC in Spain and build a forecasting model capable of predicting its future values with high accuracy. The project focuses both on statistical rigor and interpretability.
