@@ -1,0 +1,1366 @@
+---
+title: "projecte1"
+author: "Matias Mora, Marc Cascant"
+date: "2025-04-17"
+output: html_document
+---
+
+```{r}
+sr <- ts(read.table("IPC.dat")[,1], start=2002, freq=12)
+
+
+plot(sr)
+abline(v=2002:2019,lty=3,col=4)
+
+```
+
+```{r}
+
+m <- apply(matrix(sr,nr=12),2,mean)
+v <- apply(matrix(sr,nr=12),2,var)
+
+par(mfrow=c(1,2))
+boxplot(sr~floor(time(sr)))
+plot(v~m)
+abline(h = mean(v), lty = 2)
+
+```
+there doesnt appear to be correlation between mean and variance, variance isnt correlated to time
+
+```{r}
+
+par(mfrow=c(1,2))
+monthplot(sr)
+ts.plot(matrix(sr,nr=12))
+
+```
+
+Variance inst uniform across months, from jan-july increases, drops slightly in july, then july-december steadily increases; a pattern is observed in both graphs.
+
+```{r}
+var(sr)
+srd12 <- diff(sr,12)
+var(srd12)
+```
+
+By applying the difference variance has been reduced, therefore it is a significant transformation. The resulting series is the following:
+
+```{r}
+
+plot(srd12)
+abline(v=2002:2019,lty=3,col=4)
+
+```
+
+We check if there is still seasonal influence.
+
+```{r}
+
+par(mfrow=c(1,2))
+monthplot(srd12)
+ts.plot(matrix(srd12,nr=12))
+
+```
+
+Monthplot showcases that means are mostly equal from month to month, and the overlaped years showcase no clear visible trend. Therefore, the series no longer showcases seasonal patterns/influence.
+
+Now we must apply single differences until variance no longer reduces itself
+
+```{r}
+var(srd12)
+srd12d1 <- diff(srd12,1)
+var(srd12d1)
+srd12d1d1 <- diff(srd12d1,1)
+var(srd12d1d1)
+```
+
+The minimum variance is achieved after one d1 transformation.The series is as follows:
+
+```{r}
+
+plot(srd12d1)
+abline(v=2002:2019,lty=3,col=4)
+
+```
+
+We have achieved a stationary time series. Now we check for which models suit the dataset
+
+```{r}
+
+par(mfrow=c(1,2))
+acf(srd12d1,ylim=c(-1,1),lag.max = 6*12,lwd=2,col=c(2,rep(1,11)))
+pacf(srd12d1,ylim=c(-1,1),lag.max = 6*12,lwd=2,col=c(rep(1,11),2))
+
+```
+
+Seasonal MA(1) AR(2)
+Nonseasonal MA(1) AR(1)
+
+Models:
+
+ARIMA(1,1,0)(0,1,1)_12
+ARIMA(0,1,1)(0,1,1)_12
+ARIMA(1,1,0)(2,1,0)_12
+ARIMA(0,1,1)(2,1,0)_12
+
+```{r}
+(m1 <- arima(sr,order=c(1,1,0),seasonal=list(order=c(0,1,1),period=12)))
+(m2 <- arima(sr,order=c(0,1,1),seasonal=list(order=c(0,1,1),period=12)))
+(m3 <- arima(sr,order=c(1,1,0),seasonal=list(order=c(2,1,0),period=12)))
+(m4 <- arima(sr,order=c(0,1,1),seasonal=list(order=c(2,1,0),period=12)))
+```
+From the first pool of choices, the initial metrics seem to favor m1 and m2 as they showcase lower variability (lower sigma squared values) and lower AIC values (meaning that they better describe the data). Furthermore, both m1 and m2 are simpler models than m3 and m4. Taking this into account, we will proceed to only focus on m1 and m2 as they appear to be the most promising.
+
+We'll analyse both models separately first and later, once it is time to see how well they perform, they will be compared side by side. Taking this into account we proceed to the residual analysis of both models.
+
+*Model 1:*
+
+```{r}
+(m1)
+```
+
+All coefficients are significant
+
+```{r}
+Mod(polyroot(c(1,m1$model$theta)))
+Mod(polyroot(c(1,-m1$model$phi)))
+```
+
+Although all of the MA roots are shown to be larger than 1, as the model has a (1-B) component (ARIMA(1,*1*,0)), therefore it has a root not strictly larger than one, therefore it is not causal. In the other hand, as all AR roots are shown to be larger than 1, the model is therefore invertible. 
+
+```{r}
+res1 <- resid(m1)
+
+
+par(mfrow=c(1,2))
+plot(res1)
+abline(h=0)
+abline(h=c(-3*sd(res1),3*sd(res1)),lty=3,col=4)
+
+scatter.smooth(sqrt(abs(res1)),lpars=list(col=2))
+
+``` 
+In the first graph we dont observe any outliers outside the 99,7 percentile. Furthermore, in the second plot we observe a non flat line, showcasing a clear increasing trend in the first half of the years; therefore we cant assume the homocedastacity of the residuals. We cant assume variance is constant in the residuals.
+
+```{r}
+
+par(mfrow=c(1,2))
+qqnorm(res1)
+qqline(res1,col=2,lwd=2)
+
+hist(res1,breaks=20,freq=F)
+curve(dnorm(x,mean=mean(res1),sd=sd(res1)),col=2,lwd=2,add=T)
+
+```
+
+It mostly follows the red line in QQ plot (except the furthermost points wich are a bit skew), and the residuals mostly follow a gaussian distribution, although it isn't clear enough as to take it as a fact. We must, therefore, check the numerical values of the Shapiro-Wilk test. 
+
+```{r}
+shapiro.test(res1)
+```
+
+As we can observe in the Shapiro-Wilk test, as the p-value isn't smaller than 0.05 we cannot discard the null hypothesis, therefore meaning that the we can assume the residuals follow a normal distribution.
+
+
+```{r}
+
+par(mfrow=c(1,2))
+acf(res1)
+pacf(res1)
+
+tsdiag(m1,gof.lag=72)
+
+```
+
+We observe that the ACF and PACF lags stay within the confidence band and the Ljung-Box test shows that all residuals are significant as they have values larger than 0.05. This information allows us to consider that the residuals are compatible with white noise as there is no present correlation amongst residuals.
+
+Taking all the information above, our model showcases residuals that are compatible with white noise and can assumed to follow a normal distribution; however, this residuals don't achieve homocedasticity, meaning that there is most likely presence of outliers that will have to be treated.
+
+```{r}
+AIC(m1)
+BIC(m1)
+```
+
+For the Model 1, this are the AIC and BIC metrics, which we will use to compare both models later down the line.
+
+```{r}
+obs <- c(2017,12)
+sr2 <- window(sr,end=obs)
+
+m12 <- arima(sr2,order=c(1,1,0),seasonal=list(order=c(0,1,1),period=12))
+(m1)
+(m12)
+```
+
+Now we have generated a variant of model 1 such that the last 12 observations are excluded. This model's coefficients appear to be significant and almost identical to those of the original model, therefore we can assume that the model is, indeed, stable.
+
+```{r}
+real <- window(sr,start=obs+c(0,1))
+pre1 <- predict(m12,n.ahead = 12)
+pr1 <- pre1$pred
+ 
+
+SE1 <- ((real-pr1))^2
+(RMSE1 <- sqrt(mean(SE1)))
+AE1 <- abs(real-pr1)
+(MAE1 <- mean(AE1))
+(RMSPE1=sqrt(mean(((real-pr1)/real)^2)))
+(MAPE1=mean(AE1/real))
+
+ll1 <- pre1$pred-1.96*pre1$se
+ul1 <- pre1$pred+1.96*pre1$se
+(CI1=mean(ul1-ll1))
+
+```
+
+*model 2:*
+
+```{r}
+(m2)
+```
+
+All coefficients are significant.
+
+```{r}
+Mod(polyroot(c(1,m2$model$theta)))
+Mod(polyroot(c(1,-m2$model$phi)))
+```
+
+Although all of the MA roots are shown to be larger than 1, as the model has a (1-B) component there exists a root that is not strictly larger than 1, there fore the model is not causal. As this model has no AR part, it is therefore invertible.
+
+```{r}
+res2 <- resid(m2)
+
+par(mfrow=c(1,2))
+plot(res2)
+abline(h=0)
+abline(h=c(-3*sd(res2),3*sd(res2)),lty=3,col=4)
+
+scatter.smooth(sqrt(abs(res2)),lpars=list(col=2))
+
+``` 
+
+In the first graph we dont observe any outliers outside the 99,7 percentile. Furthermore, in the second plot we observe a non flat line, showcasing a clear increasing trend in the first half of the years; therefore we cant assume the homocedastacity of the residauls. We cant assume variance is constant in the residuals.
+
+```{r}
+
+par(mfrow=c(1,2))
+qqnorm(res2)
+qqline(res2,col=2,lwd=2)
+
+hist(res2,breaks=20,freq=F)
+curve(dnorm(x,mean=mean(res2),sd=sd(res2)),col=2,lwd=2,add=T)
+
+```
+
+By looking at the QQ-plot we can observe that as the point grow further apart from the center they start to skew from the red line, specially those in the [2,3] range. On the other hand, by looking at the residual histogram, we can see that it mostly follows a gaussian except for a few columns which greatly underestimate and overestimate. By looking at the graphs it isn't clear enough as to conclude if the residuals follow a normal distribution or not, and therefore means that a numerical test must be done as to further analyse.
+
+```{r}
+shapiro.test(res2)
+```
+
+After undergoing the Shapiro-Wilk test, the associated p-value is smaller than 0.05, meaning that the null-hypothesis can be rejected, meaning that we cannot assume that the residuals follow a normal distribution.
+
+```{r}
+
+par(mfrow=c(1,2))
+acf(res2)
+pacf(res2)
+
+
+tsdiag(m2,gof.lag=72)
+
+```
+
+We observe that the ACF and PACF lags stay within the confidence band and the Ljung-Box test shows that all residuals are significant as they have values larger than 0.05. This information allows us to consider that the residuals are compatible with white noise as there is no present correlation amongst residuals.
+
+Taking all the information above, our model showcases residuals that are compatible with white noise; however, this residuals don't achieve homocedasticity and don't follow a gaussian distribution, meaning that the residuals don't behave well, which is most likely due to the presence of outliers that will have to be treated.
+
+```{r}
+AIC(m2)
+BIC(m2)
+```
+
+
+```{r}
+m22 <- arima(sr2,order=c(0,1,1),seasonal=list(order=c(0,1,1),period=12))
+(m2)
+(m22)
+```
+
+Now we have generated a variant of model 2 such that the last 12 observations are excluded. This model's coefficients appear to be significant and almost identical to those of the original model, therefore we can assume that the model is, indeed, stable.
+
+
+```{r}
+pre2 <- predict(m22,n.ahead = 12)
+pr2 <- pre2$pred
+
+SE2 <- ((real-pr2))^2
+(RMSE2 <- sqrt(mean(SE2)))
+AE2 <- abs(real-pr2)
+(MAE2 <- mean(AE2))
+(RMSPE2=sqrt(mean(((real-pr2)/real)^2)))
+(MAPE2=mean(AE2/real))
+
+
+ll2 <- pre2$pred-1.96*pre2$se
+ul2 <- pre2$pred+1.96*pre2$se
+(CI2=mean(ul2-ll2))
+```
+
+Having done the residual analysis of both models, we now proceed to compare both models in order to choose 
+
+```{r}
+res_simple <- data.frame(
+  par = c(length(coef(m1)), length(coef(m2))),
+  sigma2 = c(m1$sigma2, m2$sigma2),
+  AIC = c(AIC(m1), AIC(m2)),
+  BIC = c(BIC(m1), BIC(m2)),
+  RMSE = c(RMSE1, RMSE2),
+  MAE = c(MAE1, MAE2),
+  RMSPE = c(RMSPE1, RMSPE2),
+  MAPE = c(MAPE1, MAPE2),
+  CIml = c(CI1, CI2)
+)
+row.names(res_simple) <- c("1", "2")
+res_simple
+
+```
+
+As we can observe, both models present similar metrics. Regarding AIC and BIC metrics, the second model outperforms the first as it has lower values. However, regarding the accuracy metrics it is the first model which outperforms the second, bringing lower values in all the metrics. Regarding the average size of the confidence interval, the second models appears to have a slightly shorted mean interval width. Taking this into account we must search for other information in order to reach the decision as this information is not enough.It is here where the difference in residual behavior becomes important. The residuals of both models where compatible with white noise but both didn't follow homocedasticity, but whereas the first model's residuals followed a gaussian distribution the second model's residuals didn't. This a key difference as this implies that the residuals of the first model behave better than those of the second model, and as the other criteria aren't enough to reach an answer this is the dealbreaker; furthermore, as the second models residuals don't follow a normal distribution, the confidence interval being narrower isn't as a trustworthy metric as it should. Therefore, the model which best suits the data is that of model 1, an ARIMA(1,1,0)(0,1,1)_12, meaning that from this point forward we will be using model 1.
+
+Having found our model, these are the forecasts for the year of 2019 (the following 12months after the end of observations).
+
+```{r}
+
+pre <- predict(m1,n.ahead = 12)
+lowlim <- pre$pred - 1.96*pre$se
+upplim <- pre$pred + 1.96*pre$se
+pr <- pre$pred
+
+
+ts.plot(sr,pr,lowlim,upplim,lty=c(1,1,3,3),col=c(1,2,4,4),xlim=c(2014,2020),ylim = c(90,110),type="o")
+abline(v=2014:2020,col=4,lty=3)
+
+```
+
+a
+
+**Calendar effects**
+```{r}
+source("outsource.R")
+
+inici=c(2002,1,length(sr))
+```
+
+
+```{r}
+vT <- Wtrad(inici)
+vH <- get_vacances(inici)
+vS <- get_rebaixes(inici)
+vE <- Weaster(inici)
+```
+
+```{r}
+m1
+(m1vT <- arima(sr,order=c(1,1,0),seasonal=list(order=c(0,1,1),period=12),xreg=vT))
+(m1vH <- arima(sr,order=c(1,1,0),seasonal=list(order=c(0,1,1),period=12),xreg=vH))
+(m1vR <- arima(sr,order=c(1,1,0),seasonal=list(order=c(0,1,1),period=12),xreg=vS))
+(m1vE <- arima(sr,order=c(1,1,0),seasonal=list(order=c(0,1,1),period=12),xreg=vE))
+```
+
+Easter is the only relevant calendar restirction; traiding days, national holidays (including, but not limited to, Easter) and sales season don't seam to have a relevant impact.
+
+## Intervention analysis
+
+Regarding events that could impact, the following come to mind: The global financial crisis tied to teh Oil Price shock 2007-2008, and the european debt crisis that followed 2010-2012, Eurozone Crisis that led to interest rate changes 2012-2014. At a national level, the arribal of Mariano Rajoy at the government in 2011 could also supose an important change.
+
+```{r}
+n <- length(sr)
+
+vGFC <- ts(rep(0, n), start = c(2002, 1), freq = 12)  # Global Financial Crisis (2007-2008)
+vEDC <- ts(rep(0, n), start = c(2002, 1), freq = 12)  # European Debt Crisis (2010-2012)
+vEZC <- ts(rep(0, n), start = c(2002, 1), freq = 12)  # Eurozone Crisis (2012-2014)
+vGovChange <- ts(rep(0, n), start = c(2002, 1), freq = 12)  # Government Change (2011-2019)
+
+window(vGFC, start = c(2007, 1), end = c(2008, 12)) <- 1
+window(vEDC, start = c(2010, 1), end = c(2012, 12)) <- 1
+window(vEZC, start = c(2012, 1), end = c(2014, 12)) <- 1
+window(vGovChange, start = c(2011, 1)) <- 1
+```
+
+We apply the intervention analysis to our original model and to our model with the calendar effects accounted for
+
+```{r}
+(m1IA <- arima(sr,order=c(1,1,0),seasonal=list(order=c(0,1,1),period=12),xreg=data.frame(vGFC,vEDC,vEZC,vGovChange)))
+(m1vEIA <- arima(sr,order=c(1,1,0),seasonal=list(order=c(0,1,1),period=12),xreg=data.frame(vE,vGFC,vEDC,vEZC,vGovChange)))
+```
+
+As we can observe, the intervention analysis' coefficients aren't signigicant in any of the two given models, therefore, going forward, they will not be accounted for. From know on, we will assess the original model with Easter as a calendar effect.
+
+```{r}
+
+srE <- sr - coef(m1vE)["vE"]*vE
+
+plot(srE)
+abline(v=2002:2019,lty=3,col=4)
+```
+
+After generating the time series without the "Easter effect", we have a new timeseries which we need to fit. We proceed with the same procedure we used for the original, series, so the methodology is analogous.
+
+```{r}
+
+m <- apply(matrix(srE,nr=12),2,mean)
+v <- apply(matrix(srE,nr=12),2,var)
+
+par(mfrow=c(1,2))
+boxplot(srE~floor(time(srE)))
+plot(v~m)
+abline(h = mean(v), lty = 2)
+
+```
+
+No appreciable pattern (left), whiskers widht doesn't show aparent correlation with time. We asume that variance is constant thorought time
+
+```{r}
+
+par(mfrow=c(1,2))
+monthplot(srE)
+ts.plot(matrix(srE,nr=12))
+
+```
+Some patern is appreciable, increasing tendency, with small decreas in July-August, in other words same tendency as the original. We treat seasonal.
+
+```{r}
+var(srE)
+srEd12 <- diff(srE,12)
+var(srEd12)
+```
+Variance decreases, it has been the correct choice
+
+
+```{r}
+
+par(mfrow=c(1,2))
+monthplot(srEd12)
+ts.plot(matrix(srEd12,nr=12))
+
+```
+
+Pattern are no longer apreciable, and in monthplot they mostly showcase a flatline. We can proceed to regular difference.
+
+```{r}
+var(srEd12)
+srEd12d1 <- diff(srEd12,1)
+var(srEd12d1)
+srEd12d1d1 <- diff(srEd12d1,1)
+var(srEd12d1d1)
+```
+
+Only one regular difference, we have found our model. We know check ACF and PACF in order to find possible models that suit it.
+
+```{r}
+par(mfrow=c(1,2))
+acf(srEd12d1,ylim=c(-1,1),lag.max = 6*12,lwd=2,col=c(2,rep(1,11)))
+pacf(srEd12d1,ylim=c(-1,1),lag.max = 6*12,lwd=2,col=c(rep(1,11),2))
+```
+Seasonal:
+Peaks at 0 and 1 in ACF, implying MA(1)_12, peaks at 1,2,3 at PACF, meaning AR(3)_12
+Regular (disregarding orbitals):
+Peaks at 1 in ACF, implying MA(1), peaks at 1 at PACF, meaning AR(1)
+
+Therefore, possible models:
+ARIMA(1,1,0)(0,1,1)
+ARIMA(0,1,1)(0,1,1)
+
+We proceed to analyse the models
+
+```{r}
+(mE1 <- arima(sr,order=c(1,1,0),seasonal=list(order=c(0,1,1),period=12),xreg=vE))
+(mE2 <- arima(sr,order=c(0,1,1),seasonal=list(order=c(0,1,1),period=12),xreg=vE))
+```
+
+We'll analyse both models separately first and later, once it is time to see how well they perform, they will be compared side by side. Taking this into account we proceed to the residual analysis of both models.
+
+*Model 1:*
+
+```{r}
+(mE1)
+```
+
+All coefficients are significant
+
+```{r}
+Mod(polyroot(c(1,mE1$model$theta)))
+Mod(polyroot(c(1,-mE1$model$phi)))
+```
+
+Although all of the MA roots are shown to be larger than 1, as the model has a (1-B) component (ARIMA(1,*1*,0)), therefore it has a root not strictly larger than one, therefore it is not causal. In the other hand, as all AR roots are shown to be larger than 1, the model is therefore invertible. 
+
+```{r}
+res1E <- resid(mE1)
+
+par(mfrow=c(1,2))
+plot(res1E)
+abline(h=0)
+abline(h=c(-3*sd(res1E),3*sd(res1E)),lty=3,col=4)
+
+scatter.smooth(sqrt(abs(res1E)),lpars=list(col=2))
+
+``` 
+In the first graph we dont observe any outliers outside the 99,7 percentile. Furthermore, in the second plot we observe a non flat line, showcasing a clear increasing trend in the first half of the years; therefore we cant assume the homocedastacity of the residuals. We cant assume variance is constant in the residuals.
+
+```{r}
+
+par(mfrow=c(1,2))
+qqnorm(res1E)
+qqline(res1E,col=2,lwd=2)
+
+hist(res1E,breaks=20,freq=F)
+curve(dnorm(x,mean=mean(res1E),sd=sd(res1E)),col=2,lwd=2,add=T)
+
+```
+
+It mostly follows the red line in QQ plot (except the furthermost points wich are a bit skew), and the residuals mostly follow a gaussian distribution, although it isn't clear enough as to take it as a fact. We must, therefore, check the numerical values of the Shapiro-Wilk test. 
+
+```{r}
+shapiro.test(res1E)
+```
+
+As we can observe in the Shapiro-Wilk test, as the p-value isn't smaller than 0.05 we cannot discard the null hypothesis, therefore meaning that the we can assume the residuals follow a normal distribution.
+
+
+```{r}
+
+par(mfrow=c(1,2))
+acf(res1E)
+pacf(res1E)
+tsdiag(mE1,gof.lag=72)
+
+```
+
+We observe that the ACF and PACF lags stay within the confidence band and the Ljung-Box test shows that all residuals are significant as they have values larger than 0.05. This information allows us to consider that the residuals are compatible with white noise as there is no present correlation amongst residuals.
+
+Taking all the information above, our model showcases residuals that are compatible with white noise and can assumed to follow a normal distribution; however, this residuals don't achieve homocedasticity, meaning that there is most likely presence of outliers that will have to be treated.
+
+```{r}
+AIC(mE1)
+BIC(mE1)
+```
+
+For the Model 1, this are the AIC and BIC metrics, which we will use to compare both models later down the line.
+
+```{r}
+vE1 <- window(vE,end=obs)
+vE2 <- window(vE,start=obs+c(0,1))
+
+mE12 <- arima(sr2,order=c(1,1,0),seasonal=list(order=c(0,1,1),period=12),xreg=vE1)
+(mE1)
+(mE12)
+```
+
+Now we have generated a variant of model 1 such that the last 12 observations are excluded. This model's coefficients appear to be significant and almost identical to those of the original model, therefore we can assume that the model is, indeed, stable.
+
+```{r}
+pre1E <- predict(mE12,n.ahead = 12,newxreg = vE2)
+pr1E <- pre1E$pred
+
+SE1E <- ((real-pr1E))^2
+(RMSE1E <- sqrt(mean(SE1E)))
+AE1E <- abs(real-pr1E)
+(MAE1E <- mean(AE1E))
+(RMSPE1E=sqrt(mean(((real-pr1E)/real)^2)))
+(MAPE1E=mean(AE1E/real))
+
+ll1E <- pre1E$pred-1.96*pre1E$se
+ul1E <- pre1E$pred+1.96*pre1E$se
+(CI1E=mean(ul1E-ll1E))
+```
+
+*model 2:*
+
+```{r}
+(mE2)
+```
+
+All coefficients are significant.
+
+```{r}
+Mod(polyroot(c(1,mE2$model$theta)))
+Mod(polyroot(c(1,-mE2$model$phi)))
+```
+
+Although all of the MA roots are shown to be larger than 1, as the model has a (1-B) component there exists a root that is not strictly larger than 1, there fore the model is not causal. As this model has no AR part, it is therefore invertible.
+
+```{r}
+res2E <- resid(mE2)
+
+par(mfrow=c(1,2))
+plot(res2E)
+abline(h=0)
+abline(h=c(-3*sd(res2E),3*sd(res2E)),lty=3,col=4)
+
+scatter.smooth(sqrt(abs(res2E)),lpars=list(col=2))
+``` 
+
+In the first graph we only observe one outliers outside the 99,7 percentile. Furthermore, in the second plot we observe a non flat line, showcasing a clear increasing trend in the first half of the years; therefore we cant assume the homocedastacity of the residauls. We cant assume variance is constant in the residuals.
+
+```{r}
+
+par(mfrow=c(1,2))
+qqnorm(res2E)
+qqline(res2E,col=2,lwd=2)
+
+hist(res2E,breaks=20,freq=F)
+curve(dnorm(x,mean=mean(res2E),sd=sd(res2E)),col=2,lwd=2,add=T)
+
+```
+
+By looking at the QQ-plot we can observe that as the point grow further apart from the center they start to skew from the red line, specially those in the [2,3] range. On the other hand, by looking at the residual histogram, we can see that it mostly follows a gaussian except for a few columns which greatly underestimate and overestimate. By looking at the graphs it isn't clear enough as to conclude if the residuals follow a normal distribution or not, and therefore means that a numerical test must be done as to further analyse.
+
+```{r}
+shapiro.test(res2E)
+```
+
+After undergoing the Shapiro-Wilk test, the associated p-value is smaller than 0.05, meaning that the null-hypothesis can be rejected, meaning that we cannot assume that the residuals follow a normal distribution.
+
+```{r}
+
+par(mfrow=c(1,2))
+acf(res2E)
+pacf(res2E)
+tsdiag(mE2,gof.lag=72)
+
+```
+
+We observe that the ACF and PACF lags stay within the confidence band and the Ljung-Box test shows that all residuals are significant as they have values larger than 0.05. This information allows us to consider that the residuals are compatible with white noise as there is no present correlation amongst residuals.
+
+Taking all the information above, our model showcases residuals that are compatible with white noise; however, this residuals don't achieve homocedasticity and don't follow a gaussian distribution, meaning that the residuals don't behave well, which is most likely due to the presence of outliers that will have to be treated.
+
+```{r}
+AIC(mE2)
+BIC(mE2)
+```
+
+
+```{r}
+mE22 <- arima(sr2,order=c(0,1,1),seasonal=list(order=c(0,1,1),period=12),xreg=vE1)
+(mE2)
+(mE22)
+```
+
+Now we have generated a variant of model 2 such that the last 12 observations are excluded. This model's coefficients appear to be significant and almost identical to those of the original model, therefore we can assume that the model is, indeed, stable.
+
+
+```{r}
+pre2E <- predict(mE22,n.ahead = 12,newxreg = vE2)
+pr2E <- pre2E$pred
+
+SE2E <- ((real-pr2E))^2
+(RMSE2E <- sqrt(mean(SE2E)))
+AE2E <- abs(real-pr2E)
+(MAE2E <- mean(AE2E))
+(RMSPE2E=sqrt(mean(((real-pr2E)/real)^2)))
+(MAPE2E=mean(AE2E/real))
+
+ll2E <- pre2E$pred-1.96*pre2E$se
+ul2E <- pre2E$pred+1.96*pre2E$se
+(CI2E=mean(ul2E-ll2E))
+```
+
+Having done the residual analysis of both models, we now proceed to compare both models in order to choose 
+
+```{r}
+res_E <- data.frame(
+  par = c(length(coef(mE1)), length(coef(mE2))),
+  sigma2 = c(mE1$sigma2, mE2$sigma2),
+  AIC = c(AIC(mE1), AIC(mE2)),
+  BIC = c(BIC(mE1), BIC(mE2)),
+  RMSE = c(RMSE1E, RMSE2E),
+  MAE = c(MAE1E, MAE2E),
+  RMSPE = c(RMSPE1E, RMSPE2E),
+  MAPE = c(MAPE1E, MAPE2E),
+  CIml = c(CI1E, CI2E)
+)
+
+# Optional: Add row names
+row.names(res_E) <- c("mE1", "mE2")
+res_E
+
+```
+
+As it can be seen on the metrics, the second model outperforms the first one in all the categories, constantly showing lower values (what we want).  The only criteria in which the first model showcases better behaviour is in its residuals, where they can be assumed to follow a normal distribution. Therefore, the model which best suits the data is that of model 1, an ARIMA(0,1,1)(0,1,1)_12, meaning that from this point forward we will be using model 1.
+
+Having chosen the best amongst the models with calendar treatment, we compare it with the original model to see whether there has been an improvement or not.
+
+```{r}
+res_m1_mE2 <- data.frame(
+  par = c(length(coef(m1)), length(coef(mE2))),
+  sigma2 = c(m1$sigma2, mE2$sigma2),
+  AIC = c(AIC(m1), AIC(mE2)),
+  BIC = c(BIC(m1), BIC(mE2)),
+  RMSE = c(RMSE1, RMSE2E),
+  MAE = c(MAE1, MAE2E),
+  RMSPE = c(RMSPE1, RMSPE2E),
+  MAPE = c(MAPE1, MAPE2E),
+  CIml = c(CI1, CI2E)
+)
+
+# Add row names for clarity
+row.names(res_m1_mE2) <- c("m1", "mE2")
+
+# View the result
+res_m1_mE2
+
+
+```
+
+Both models present similar metrics. The model with the calendar effects applied showcases better results in the AIC and BIC metrics, meaning that it is more efficient than the original model. The predicitions made by both models are:
+
+```{r}
+ultim <- c(2018,12)
+vEp <- Weaster(c(2019,1,12))
+pre2E <- predict(mE2,n.ahead = 12,newxreg = vEp)
+lowlim2E <- pre2E$pred - 1.96*pre2E$se
+upplim2E <- pre2E$pred + 1.96*pre2E$se
+pr2E <- pre2E$pred
+
+ts.plot(sr,pr,lowlim,upplim,lty=c(1,1,3,3),col=c(1,2,4,4),xlim=c(2014,2020),ylim = c(90,110),type="o")
+abline(v=2014:2020,col=4,lty=3)
+
+ts.plot(sr,pr2E,lowlim2E,upplim2E,lty=c(1,1,3,3),col=c(1,2,4,4),xlim=c(2014,2020),ylim = c(90,110),type="o")
+abline(v=2014:2020,col=4,lty=3)
+```
+
+
+**Outlier treatment**
+
+We apply outlier treatment to both.
+
+```{r}
+source("atipics2.R")
+```
+
+```{r}
+mod1.atip=outdetec(m1,dif=c(1,12),crit=2.9,LS=T)
+
+atipics=mod1.atip$atip[order(mod1.atip$atip[,1]),]
+meses=c("Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic")
+atipicsm1 <- data.frame(atipics,
+           Fecha=paste(meses[(atipics[,1]-1)%%12+1],start(sr)[1]+((atipics[,1]-1)%/%12)),
+           PercVar=exp(atipics[,3])*100)
+atipicsm1
+
+```
+```{r}
+
+par(mfrow=c(1,2))
+sr.lin=lineal(sr,mod1.atip$atip)
+plot(sr)
+lines(sr.lin,col=2,lty=3)
+
+plot(sr-sr.lin)
+
+```
+
+```{r}
+mod1E.atip=outdetec(mE1,dif=c(1,12),crit=2.9,LS=T)
+
+atipics=mod1E.atip$atip[order(mod1E.atip$atip[,1]),]
+meses=c("Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic")
+data.frame(atipics,
+           Fecha=paste(meses[(atipics[,1]-1)%%12+1],start(sr)[1]+((atipics[,1]-1)%/%12)),
+           PercVar=exp(atipics[,3])*100)
+```
+```{r}
+ 
+par(mfrow=c(1,2))
+sr.linE=lineal(sr,mod1E.atip$atip)
+plot(sr)
+lines(sr.linE,col=2,lty=3)
+
+plot(sr-sr.linE)
+```
+
+When applying outlier treatment to both models we observe that, using the same critical level, the model with calendar treatment showcases less outliers, meaning that the model with calendar data can account more data compared to the original model. 
+
+We generate models with outlier treatment for both calendar and non-calendar effect
+
+```{r}
+
+plot(sr.lin)
+abline(v=2002:2019,lty=3,col=4)
+```
+
+```{r}
+
+srd12d1.lin = diff(diff(sr.lin,12),1)
+plot(srd12d1.lin)
+abline(v=2002:2019,lty=3,col=4)
+```
+
+```{r}
+
+par(mfrow=c(1,2))
+acf(srd12d1.lin,ylim=c(-1,1),lag.max = 6*12,lwd=2,col=c(2,rep(1,11)))
+pacf(srd12d1.lin,ylim=c(-1,1),lag.max = 6*12,lwd=2,col=c(rep(1,11),2))
+```
+
+```{r}
+mL1 <- arima(sr.lin,order=c(1,1,0),seasonal=list(order=c(0,1,1),period=12))
+mL2 <- arima(sr.lin,order=c(0,1,1),seasonal=list(order=c(0,1,1),period=12))
+```
+
+We'll analyse both models separately first and later, once it is time to see how well they perform, they will be compared side by side. Taking this into account we proceed to the residual analysis of both models.
+
+*Model 1:*
+
+```{r}
+(mL1)
+```
+
+All coefficients are significant
+
+```{r}
+Mod(polyroot(c(1,mL1$model$theta)))
+Mod(polyroot(c(1,-mL1$model$phi)))
+```
+
+Although all of the MA roots are shown to be larger than 1, as the model has a (1-B) component (ARIMA(1,*1*,0)), therefore it has a root not strictly larger than one, therefore it is not causal. In the other hand, as all AR roots are shown to be larger than 1, the model is therefore invertible. 
+
+```{r}
+res1L <- resid(mL1)
+
+
+par(mfrow=c(1,2))
+plot(res1L)
+abline(h=0)
+abline(h=c(-3*sd(res1L),3*sd(res1L)),lty=3,col=4)
+
+scatter.smooth(sqrt(abs(res1L)),lpars=list(col=2))
+
+residuals_1ec <- residuals(mL1)
+
+# Create a time index for the residuals (assuming monthly data with 12 observations per year)
+time_index <- 1:length(residuals_1ec)
+
+# Fit a linear model of squared residuals against time to test for heteroscedasticity
+squared_residuals <- residuals_1ec^2
+bp_model <- lm(squared_residuals ~ time_index)
+
+# Perform the Breusch-Pagan test
+bp_test <- bptest(bp_model)
+
+# Print the test results
+print(bp_test)
+
+``` 
+In the first graph we dont observe any outliers outside the 99,7 percentile. Furthermore, in the second plot we observe a non flat line, showcasing a clear increasing trend in the first half of the years; therefore we cant assume the homocedastacity of the residauls. We cant assume variance is constant in the residuals.
+
+```{r}
+
+par(mfrow=c(1,2))
+qqnorm(res1L)
+qqline(res1L,col=2,lwd=2)
+
+hist(res1L,breaks=20,freq=F)
+curve(dnorm(x,mean=mean(res1L),sd=sd(res1L)),col=2,lwd=2,add=T)
+
+```
+
+It mostly follows the red line in QQ plot (except the furthermost points wich are a bit skew), and the residuals mostly follow a gaussian distribution, although it isn't clear enough as to take it as a fact. We must, therefore, check the numerical values of the Shapiro-Wilk test. 
+
+```{r}
+shapiro.test(res1L)
+```
+
+As we can observe in the Shapiro-Wilk test, as the p-value isn't smaller than 0.05 we cannot discard the null hypothesis, therefore meaning that the we can assume the residuals follow a normal distribution.
+
+
+```{r}
+
+par(mfrow=c(1,2))
+acf(res1L)
+pacf(res1L)
+
+tsdiag(mL1,gof.lag=72)
+
+```
+
+We observe that the ACF and PACF lags stay within the confidence band and the Ljung-Box test shows that all residuals are significant as they have values larger than 0.05. This information allows us to consider that the residuals are compatible with white noise as there is no present correlation amongst residuals.
+
+Taking all the information above, our model showcases residuals that are compatible with white noise and can assumed to follow a normal distribution; however, this residuals don't achieve homocedasticity, meaning that there is most likely presence of outliers that will have to be treated.
+
+```{r}
+AIC(mL1)
+BIC(mL1)
+```
+
+For the Model 1, this are the AIC and BIC metrics, which we will use to compare both models later down the line.
+
+```{r}
+sr2.lin <- window(sr.lin,end=obs)
+
+mL12 <- arima(sr2.lin,order=c(1,1,0),seasonal=list(order=c(0,1,1),period=12))
+(mL1)
+(mL12)
+```
+
+Now we have generated a variant of model 1 such that the last 12 observations are excluded. This model's coefficients appear to be significant and almost identical to those of the original model, therefore we can assume that the model is, indeed, stable.
+
+```{r}
+pre1L <- predict(mL12,n.ahead = 12)
+wLS =sum(mod1.atip$atip[mod1.atip$atip[,2]=="LS",3])
+
+pr1L <- pre1L$pred + wLS
+ 
+
+SE1L <- ((real-pr1L))^2
+(RMSE1L <- sqrt(mean(SE1L)))
+AE1L <- abs(real-pr1L)
+(MAE1L <- mean(AE1L))
+(RMSPE1L=sqrt(mean(((real-pr1L)/real)^2)))
+(MAPE1L=mean(AE1L/real))
+
+ll1L <- pre1L$pred-1.96*pre1L$se+wLS
+ul1L <- pre1L$pred+1.96*pre1L$se+wLS
+(CI1L=mean(ul1L-ll1L))
+
+```
+
+*model 2:*
+
+```{r}
+(mL2)
+```
+
+All coefficients are significant.
+
+```{r}
+Mod(polyroot(c(1,mL2$model$theta)))
+Mod(polyroot(c(1,-mL2$model$phi)))
+```
+
+Although all of the MA roots are shown to be larger than 1, as the model has a (1-B) component there exists a root that is not strictly larger than 1, there fore the model is not causal. As this model has no AR part, it is therefore invertible.
+
+```{r}
+res2L <- resid(mL2)
+
+
+par(mfrow=c(1,2))
+plot(res2L)
+abline(h=0)
+abline(h=c(-3*sd(res2L),3*sd(res2L)),lty=3,col=4)
+
+scatter.smooth(sqrt(abs(res2L)),lpars=list(col=2))
+
+residuals_1ec <- residuals(mL2)
+
+# Create a time index for the residuals (assuming monthly data with 12 observations per year)
+time_index <- 1:length(residuals_1ec)
+
+# Fit a linear model of squared residuals against time to test for heteroscedasticity
+squared_residuals <- residuals_1ec^2
+bp_model <- lm(squared_residuals ~ time_index)
+
+# Perform the Breusch-Pagan test
+bp_test <- bptest(bp_model)
+
+# Print the test results
+print(bp_test)
+``` 
+
+In the first graph we dont observe any outliers outside the 99,7 percentile. Furthermore, in the second plot we observe a non flat line, showcasing a clear increasing trend in the first half of the years; therefore we cant assume the homocedastacity of the residauls. We cant assume variance is constant in the residuals.
+
+```{r}
+
+par(mfrow=c(1,2))
+qqnorm(res2L)
+qqline(res2L,col=2,lwd=2)
+
+hist(res2L,breaks=20,freq=F)
+curve(dnorm(x,mean=mean(res2L),sd=sd(res2L)),col=2,lwd=2,add=T)
+
+```
+
+By looking at the QQ-plot we can observe that as the point grow further apart from the center they start to skew from the red line, specially those in the [2,3] range. On the other hand, by looking at the residual histogram, we can see that it mostly follows a gaussian except for a few columns which greatly underestimate and overestimate. By looking at the graphs it isn't clear enough as to conclude if the residuals follow a normal distribution or not, and therefore means that a numerical test must be done as to further analyse.
+
+```{r}
+shapiro.test(res2L)
+```
+
+After undergoing the Shapiro-Wilk test, the associated p-value is smaller than 0.05, meaning that the null-hypothesis can be rejected, meaning that we cannot assume that the residuals follow a normal distribution.
+
+```{r}
+
+par(mfrow=c(1,2))
+acf(res2L)
+pacf(res2L)
+tsdiag(mL2,gof.lag=72)
+
+```
+
+We observe that the ACF and PACF lags stay within the confidence band and the Ljung-Box test shows that all residuals are significant as they have values larger than 0.05. This information allows us to consider that the residuals are compatible with white noise as there is no present correlation amongst residuals.
+
+Taking all the information above, our model showcases residuals that are compatible with white noise; however, this residuals don't achieve homocedasticity and don't follow a gaussian distribution, meaning that the residuals don't behave well, which is most likely due to the presence of outliers that will have to be treated.
+
+```{r}
+AIC(mL2)
+BIC(mL2)
+```
+
+
+```{r}
+mL22 <- arima(sr2.lin,order=c(0,1,1),seasonal=list(order=c(0,1,1),period=12))
+(mL2)
+(mL22)
+```
+
+Now we have generated a variant of model 2 such that the last 12 observations are excluded. This model's coefficients appear to be significant and almost identical to those of the original model, therefore we can assume that the model is, indeed, stable.
+
+
+```{r}
+pre2L <- predict(mL22,n.ahead = 12)
+pr2L <- pre2L$pred + wLS
+
+SE2L <- ((real-pr2L))^2
+(RMSE2L <- sqrt(mean(SE2L)))
+AE2L <- abs(real-pr2L)
+(MAE2L <- mean(AE2L))
+(RMSPE2L=sqrt(mean(((real-pr2L)/real)^2)))
+(MAPE2L=mean(AE2L/real))
+
+
+ll2L <- pre2L$pred-1.96*pre2L$se + wLS
+ul2L <- pre2L$pred+1.96*pre2L$se + wLS
+(CI2L=mean(ul2L-ll2L))
+```
+
+Having done the residual analysis of both models, we now proceed to compare both models in order to choose 
+
+```{r}
+res_L <- data.frame(
+  par = c(length(coef(mL1))+nrow(mod1.atip$atip), length(coef(mL2))+nrow(mod1.atip$atip)),
+  sigma2 = c(mL1$sigma2, mL2$sigma2),
+  AIC = c(AIC(mL1), AIC(mL2)),
+  BIC = c(BIC(mL1), BIC(mL2)),
+  RMSE = c(RMSE1L, RMSE2L),
+  MAE = c(MAE1L, MAE2L),
+  RMSPE = c(RMSPE1L, RMSPE2L),
+  MAPE = c(MAPE1L, MAPE2L),
+  CIml = c(CI1L, CI2L)
+)
+
+# Add row names for clarity
+row.names(res_L) <- c("mL1", "mL2")
+
+# View the result
+res_L
+```
+
+m1 millor en tot menys CI
+
+
+**Calendar**
+
+```{r}
+srE.lin <- sr.linE - coef(mE2)["vE"]*vE
+srEd12d1.lin <- diff(diff(srE.lin,12),1)
+plot(srEd12d1.lin)
+abline(v=2002:2019,lty=3,col=4)
+```
+
+```{r}
+
+par(mfrow=c(1,2))
+acf(srEd12d1.lin,ylim=c(-1,1),lag.max = 6*12,lwd=2,col=c(2,rep(1,11)))
+pacf(srEd12d1.lin,ylim=c(-1,1),lag.max = 6*12,lwd=2,col=c(rep(1,11),2))
+```
+
+```{r}
+(mE1L <- arima(sr.linE,order=c(1,1,0),seasonal=list(order=c(0,1,1),period=12),xreg=vE))
+(mE2L <- arima(sr.linE,order=c(0,1,1),seasonal=list(order=c(0,1,1),period=12),xreg=vE))
+```
+
+We'll analyse both models separately first and later, once it is time to see how well they perform, they will be compared side by side. Taking this into account we proceed to the residual analysis of both models.
+
+*Model 1:*
+
+```{r}
+(mE1L)
+```
+
+All coefficients are significant
+
+```{r}
+Mod(polyroot(c(1,mE1L$model$theta)))
+Mod(polyroot(c(1,-mE1L$model$phi)))
+```
+
+Although all of the MA roots are shown to be larger than 1, as the model has a (1-B) component (ARIMA(1,*1*,0)), therefore it has a root not strictly larger than one, therefore it is not causal. In the other hand, as all AR roots are shown to be larger than 1, the model is therefore invertible. 
+
+```{r}
+res1EL <- resid(mE1L)
+
+
+par(mfrow=c(1,2))
+plot(res1EL)
+abline(h=0)
+abline(h=c(-3*sd(res1EL),3*sd(res1EL)),lty=3,col=4)
+
+scatter.smooth(sqrt(abs(res1EL)),lpars=list(col=2))
+
+residuals_1ec <- residuals(mE1L)
+
+# Create a time index for the residuals (assuming monthly data with 12 observations per year)
+time_index <- 1:length(residuals_1ec)
+
+# Fit a linear model of squared residuals against time to test for heteroscedasticity
+squared_residuals <- residuals_1ec^2
+bp_model <- lm(squared_residuals ~ time_index)
+
+# Perform the Breusch-Pagan test
+bp_test <- bptest(bp_model)
+
+# Print the test results
+print(bp_test)
+``` 
+In the first graph we dont observe any outliers outside the 99,7 percentile. Furthermore, in the second plot we observe a non flat line, showcasing a clear increasing trend in the first half of the years; therefore we cant assume the homocedastacity of the residuals. We cant assume variance is constant in the residuals.
+
+```{r}
+
+par(mfrow=c(1,2))
+qqnorm(res1EL)
+qqline(res1EL,col=2,lwd=2)
+
+hist(res1EL,breaks=20,freq=F)
+curve(dnorm(x,mean=mean(res1EL),sd=sd(res1EL)),col=2,lwd=2,add=T)
+
+```
+
+It mostly follows the red line in QQ plot (except the furthermost points wich are a bit skew), and the residuals mostly follow a gaussian distribution, although it isn't clear enough as to take it as a fact. We must, therefore, check the numerical values of the Shapiro-Wilk test. 
+
+```{r}
+shapiro.test(res1EL)
+```
+
+As we can observe in the Shapiro-Wilk test, as the p-value is smaller than 0.05 we discard the null hypothesis, therefore meaning that the we cannot assume the residuals follow a normal distribution.
+
+
+```{r}
+
+par(mfrow=c(1,2))
+acf(res1EL)
+pacf(res1EL)
+tsdiag(mE1L,gof.lag=72)
+
+```
+
+We observe that the ACF and PACF lags stay within the confidence band and the Ljung-Box test shows that all residuals are significant as they have values larger than 0.05. This information allows us to consider that the residuals are compatible with white noise as there is no present correlation amongst residuals.
+
+Taking all the information above, our model showcases residuals that are compatible with white noise and can assumed to follow a normal distribution; however, this residuals don't achieve homocedasticity, meaning that there is most likely presence of outliers that will have to be treated.
+
+```{r}
+AIC(mE1L)
+BIC(mE1L)
+```
+
+For the Model 1, this are the AIC and BIC metrics, which we will use to compare both models later down the line.
+
+```{r}
+sr2.linE <- window(sr.linE,end=obs)
+mE12L <- arima(sr2.linE,order=c(1,1,0),seasonal=list(order=c(0,1,1),period=12),xreg=vE1)
+(mE1L)
+(mE12L)
+```
+
+Now we have generated a variant of model 1 such that the last 12 observations are excluded. This model's coefficients appear to be significant and almost identical to those of the original model, therefore we can assume that the model is, indeed, stable.
+
+```{r}
+pre1EL <- predict(mE12L,n.ahead = 12,newxreg = vE2)
+wLSE=sum(mod1E.atip$atip[mod1E.atip$atip[,2]=="LS",3])
+
+pr1EL <- pre1EL$pred+wLSE
+
+SE1EL <- ((real-pr1EL))^2
+(RMSE1EL <- sqrt(mean(SE1EL)))
+AE1EL <- abs(real-pr1EL)
+(MAE1EL <- mean(AE1EL))
+(RMSPE1EL=sqrt(mean(((real-pr1EL)/real)^2)))
+(MAPE1EL=mean(AE1EL/real))
+
+ll1EL <- pre1EL$pred-1.96*pre1EL$se+wLSE
+ul1EL <- pre1EL$pred+1.96*pre1EL$se+wLSE
+(CI1EL=mean(ul1EL-ll1EL))
+```
+
+*model 2:*
+
+```{r}
+(mE2L)
+```
+
+All coefficients are significant.
+
+```{r}
+Mod(polyroot(c(1,mE2L$model$theta)))
+Mod(polyroot(c(1,-mE2L$model$phi)))
+```
+
+Although all of the MA roots are shown to be larger than 1, as the model has a (1-B) component there exists a root that is not strictly larger than 1, there fore the model is not causal. As this model has no AR part, it is therefore invertible.
+
+```{r}
+res2EL <- resid(mE2L)
+
+par(mfrow=c(1,2))
+plot(res2EL)
+abline(h=0)
+abline(h=c(-3*sd(res2EL),3*sd(res2EL)),lty=3,col=4)
+
+scatter.smooth(sqrt(abs(res2EL)),lpars=list(col=2))
+
+residuals_1ec <- residuals(mE2L)
+
+# Create a time index for the residuals (assuming monthly data with 12 observations per year)
+time_index <- 1:length(residuals_1ec)
+
+# Fit a linear model of squared residuals against time to test for heteroscedasticity
+squared_residuals <- residuals_1ec^2
+bp_model <- lm(squared_residuals ~ time_index)
+
+# Perform the Breusch-Pagan test
+bp_test <- bptest(bp_model)
+
+# Print the test results
+print(bp_test)
+``` 
+
+In the first graph we only observe one outliers outside the 99,7 percentile. Furthermore, in the second plot we observe a non flat line, showcasing a clear increasing trend in the first half of the years; therefore we cant assume the homocedastacity of the residauls. We cant assume variance is constant in the residuals.
+
+```{r}
+
+par(mfrow=c(1,2))
+qqnorm(res2EL)
+qqline(res2EL,col=2,lwd=2)
+
+hist(res2EL,breaks=20,freq=F)
+curve(dnorm(x,mean=mean(res2EL),sd=sd(res2EL)),col=2,lwd=2,add=T)
+
+```
+
+By looking at the QQ-plot we can observe that as the point grow further apart from the center they start to skew from the red line, specially those in the [2,3] range. On the other hand, by looking at the residual histogram, we can see that it mostly follows a gaussian except for a few columns which greatly underestimate and overestimate. By looking at the graphs it isn't clear enough as to conclude if the residuals follow a normal distribution or not, and therefore means that a numerical test must be done as to further analyse.
+
+```{r}
+shapiro.test(res2EL)
+```
+
+After undergoing the Shapiro-Wilk test, the associated p-value is smaller than 0.05, meaning that the null-hypothesis can be rejected, meaning that we cannot assume that the residuals follow a normal distribution.
+
+```{r}
+
+par(mfrow=c(1,2))
+acf(res2EL)
+pacf(res2EL)
+tsdiag(mE2L,gof.lag=72)
+
+```
+
+We observe that the ACF and PACF lags stay within the confidence band and the Ljung-Box test shows that all residuals are significant as they have values larger than 0.05. This information allows us to consider that the residuals are compatible with white noise as there is no present correlation amongst residuals.
+
+Taking all the information above, our model showcases residuals that are compatible with white noise; however, this residuals don't achieve homocedasticity and don't follow a gaussian distribution, meaning that the residuals don't behave well, which is most likely due to the presence of outliers that will have to be treated.
+
+```{r}
+AIC(mE2L)
+BIC(mE2L)
+```
+
+
+```{r}
+mE22L <- arima(sr2.linE,order=c(0,1,1),seasonal=list(order=c(0,1,1),period=12),xreg=vE1)
+(mE2L)
+(mE22L)
+```
+
+Now we have generated a variant of model 2 such that the last 12 observations are excluded. This model's coefficients appear to be significant and almost identical to those of the original model, therefore we can assume that the model is, indeed, stable.
+
+
+```{r}
+pre2EL <- predict(mE22L,n.ahead = 12,newxreg = vE2)
+pr2EL <- pre2EL$pred+wLSE
+
+SE2EL <- ((real-pr2EL))^2
+(RMSE2EL <- sqrt(mean(SE2EL)))
+AE2EL <- abs(real-pr2EL)
+(MAE2EL <- mean(AE2EL))
+(RMSPE2EL <- sqrt(mean(((real-pr2EL)/real)^2)))
+(MAPE2EL <- mean(AE2EL/real))
+
+ll2EL <- pre2EL$pred-1.96*pre2EL$se+wLSE
+ul2EL <- pre2EL$pred+1.96*pre2EL$se+wLSE
+(CI2EL<-mean(ul2EL-ll2EL))
+```
+
+Having done the residual analysis of both models, we now proceed to compare both models in order to choose 
+
+```{r}
+res_EL <- data.frame(
+  par = c(length(coef(mE1L))+nrow(mod1E.atip$atip), length(coef(mE2L))+nrow(mod1E.atip$atip)),
+  sigma2 = c(mE1L$sigma2, mE2L$sigma2),
+  AIC = c(AIC(mE1L), AIC(mE2L)),
+  BIC = c(BIC(mE1L), BIC(mE2L)),
+  RMSE = c(RMSE1EL, RMSE2EL),
+  MAE = c(MAE1EL, MAE2EL),
+  RMSPE = c(RMSPE1EL, RMSPE2EL),
+  MAPE = c(MAPE1EL, MAPE2EL),
+  CIml = c(CI1EL, CI2EL)
+)
+
+# Add row names
+row.names(res_EL) <- c("mE1L", "mE2L")
+
+# Print the result
+res_EL
+
+```
+Choose m1, has better overall results
+
+let us Compare everything.
+
+```{r}
+res=data.frame(
+        par=c(length(coef(m1)),length(coef(mE1)),length(coef(mL1))+nrow(mod1.atip$atip),length(coef(mE1L))+nrow(mod1E.atip$atip)),
+        sigma2=c(m1$sigma2,mE1$sigma2,mL1$sigma2,mE1L$sigma2),
+        AIC=c(AIC(m1),AIC(mE1),AIC(mL1),AIC(mE1L)),
+        BIC=c(BIC(m1),BIC(m1),BIC(mL1),BIC(mE1L)),
+        RMSE=c(RMSE1,RMSE1E,RMSE1L,RMSE1EL),
+        MAE=c(MAE1,MAE1E,MAE1L,MAE1EL),
+        RMSPE=c(RMSPE1,RMSPE1E,RMSPE1L,RMSPE1EL),
+        MAPE=c(MAPE1,MAPE1E,MAPE1L,MAPE1EL),
+        CIml=c(CI1,CI1E,CI1L,CI1EL)
+)
+row.names(res)=c("ARIMA","ARIMA+CA","ARIMA+OutTreat","ARIMA+CA+OutTreat")
+res
+
+```
+
+```{r}
+if (!require(lmtest)) install.packages("lmtest")
+library(lmtest)
+
+# Assuming your ARIMA model (Model 1EC) is already fitted and stored as 'model_1ec'
+# Extract the residuals
+residuals_1ec <- residuals(mE2L)
+
+# Create a time index for the residuals (assuming monthly data with 12 observations per year)
+time_index <- 1:length(residuals_1ec)
+
+# Fit a linear model of squared residuals against time to test for heteroscedasticity
+squared_residuals <- residuals_1ec^2
+bp_model <- lm(squared_residuals ~ time_index)
+
+# Perform the Breusch-Pagan test
+bp_test <- bptest(bp_model)
+
+# Print the test results
+print(bp_test)
+```
